@@ -7,18 +7,23 @@ export class MetadataParser {
 
 	/**
 	 * 从音频文件中提取元数据
+	 * @param arrayBuffer 音频文件的二进制数据
+	 * @param lyricsFromLrcFile 可选，从外部LRC文件读取的歌词文本
 	 */
-	async extractMetadata(arrayBuffer: ArrayBuffer): Promise<TrackMetadata> {
+	async extractMetadata(arrayBuffer: ArrayBuffer, lyricsFromLrcFile?: string): Promise<TrackMetadata> {
 		try {
 			// 使用 music-metadata 库提取元数据
 			const metadata = await mm.parseBuffer(Buffer.from(arrayBuffer));
+
+			// 优先使用外部LRC文件的歌词，如果没有则从元数据中提取
+			const lyrics = lyricsFromLrcFile || this.extractLyrics(metadata);
 
 			return {
 				title: metadata.common.title || "未知标题",
 				artist: metadata.common.artist || "未知艺术家",
 				album: metadata.common.album || "未知专辑",
 				cover: await this.extractCover(metadata.common.picture),
-				lyrics: this.extractLyrics(metadata),
+				lyrics: lyrics,
 			};
 		} catch (error) {
 			console.error("Failed to extract metadata:", error);

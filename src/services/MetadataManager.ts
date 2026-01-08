@@ -235,8 +235,36 @@ initializeFromSettings(settings: PluginSettings): void {
 	 */
 	private async extractFileMetadata(file: TFile): Promise<TrackMetadata> {
 		const arrayBuffer = await this.app.vault.readBinary(file);
-		const metadata = await this.parser.extractMetadata(arrayBuffer);
-		
+
+		// 尝试从同文件夹的LRC文件中读取歌词
+		let lyricsFromLrcFile: string | undefined;
+		try {
+			// 构造LRC文件路径（与音频文件同名，扩展名为.lrc）
+			const lrcFilePath = file.path.replace(/\.[^.]+$/, '.lrc');
+
+			// 检查LRC文件是否存在
+			const lrcFile = this.app.vault.getAbstractFileByPath(lrcFilePath);
+
+			if (lrcFile instanceof TFile) {
+				// 读取LRC文件内容
+				lyricsFromLrcFile = await this.app.vault.read(lrcFile);
+
+				// 如果读取成功且内容不为空，则使用
+				if (lyricsFromLrcFile && lyricsFromLrcFile.trim()) {
+					console.log(`MetadataManager: 从LRC文件加载歌词: ${lrcFilePath}`);
+				} else {
+					lyricsFromLrcFile = undefined;
+				}
+			}
+		} catch (error) {
+			// 读取LRC文件失败，忽略错误，将回退到元数据歌词
+			console.debug(`MetadataManager: 无法读取LRC文件 ${file.path}:`, error);
+			lyricsFromLrcFile = undefined;
+		}
+
+		// 提取元数据，优先使用LRC文件的歌词
+		const metadata = await this.parser.extractMetadata(arrayBuffer, lyricsFromLrcFile);
+
 		return metadata;
 	}
 
