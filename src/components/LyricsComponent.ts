@@ -23,6 +23,7 @@ export class LyricsComponent extends Component {
 	private boundHandleDragMove: ((e: MouseEvent) => void) | null = null;
 	private boundHandleDragEnd: ((e: MouseEvent) => void) | null = null;
 	private boundHandleGlobalDoubleClick: ((e: MouseEvent) => void) | null = null;
+	private animationTimeout: NodeJS.Timeout | null = null; // 动画定时器
 
 	constructor(containerEl?: HTMLElement) {
 		super();
@@ -385,7 +386,7 @@ export class LyricsComponent extends Component {
 		let cls = "music-lyrics-line";
 		if (isCurrent) cls += " current";
 		if (isPrev) cls += " prev";
-		
+
 		const lineEl = container.createDiv({
 			cls: cls,
 			attr: {
@@ -408,12 +409,13 @@ export class LyricsComponent extends Component {
 			});
 		}
 
-		// 添加点击事件（非悬浮模式）
-		if (!this.isFloating) {
-			lineEl.addEventListener("click", () => {
-				this.emit("seek-to-time", line.time);
-			});
-		}
+		// 添加点击事件
+		// 内嵌模式和悬浮模式：所有行都可点击
+		lineEl.addEventListener("click", () => {
+			this.emit("seek-to-time", line.time);
+		});
+		// 添加可点击的鼠标样式
+		lineEl.style.cursor = "pointer";
 
 		return lineEl;
 	}
@@ -430,8 +432,26 @@ export class LyricsComponent extends Component {
 		this.currentLineIndex = lineIndex;
 
 		if (this.isFloating) {
-			// 悬浮模式：使用动画切换
-			this.updateFloatingLyricsWithAnimation(prevLineIndex, lineIndex);
+			// 悬浮模式：检测播放方向和跳跃
+			const isForward = lineIndex > prevLineIndex; // 向前播放（下一行）
+			const isBackward = lineIndex < prevLineIndex; // 向后播放（上一行）
+			const isSequentialPlay = Math.abs(lineIndex - prevLineIndex) <= 1;
+
+			// 清除可能存在的动画定时器，避免冲突
+			if (this.animationTimeout) {
+				clearTimeout(this.animationTimeout);
+				this.animationTimeout = null;
+			}
+
+			// 只有向前顺序播放才使用动画，其他情况直接重新渲染
+			if (isSequentialPlay && isForward) {
+				// 向前顺序播放：使用动画切换
+				this.updateFloatingLyricsWithAnimation(prevLineIndex, lineIndex);
+			} else {
+				// 向后播放或跳跃播放：直接重新渲染，避免动画逻辑错误
+				this.lyricsText.empty();
+				this.renderFloatingLyrics();
+			}
 		} else {
 			// 内嵌模式：更新高亮
 			// 移除之前的高亮
@@ -472,7 +492,7 @@ export class LyricsComponent extends Component {
 		}
 
 		const container = this.lyricsText.querySelector(".music-lyrics-lines") as HTMLElement;
-		
+
 		if (!container) {
 			this.lyricsText.empty();
 			this.renderFloatingLyrics();
@@ -480,7 +500,7 @@ export class LyricsComponent extends Component {
 		}
 
 		const totalLines = this.currentLyrics.lines.length;
-		
+
 		// 先添加第四行（新的下一行）在底部
 		const nextNextIdx = newIndex + 1;
 		if (nextNextIdx >= 0 && nextNextIdx < totalLines) {
@@ -495,7 +515,7 @@ export class LyricsComponent extends Component {
 			});
 			emptyLine.createDiv({ cls: "music-lyrics-text", text: "♪" });
 		}
-		
+
 		// 立即更新样式类（在动画开始前）
 		// 此时有4行：[0]=prev(将移除), [1]=current(变prev), [2]=next(变current), [3]=新行(next)
 		const allLines = container.querySelectorAll(".music-lyrics-line");
@@ -504,33 +524,36 @@ export class LyricsComponent extends Component {
 			// 第1行：current -> prev
 			allLines[1].removeClass("current");
 			allLines[1].addClass("prev");
-			
+
 			// 第2行：next -> current
 			allLines[2].removeClass("prev");
 			allLines[2].addClass("current");
-			
+
 			// 第3行：默认就是 next，不需要额外处理
 		}
-		
+
 		// 触发向上滑动动画
 		requestAnimationFrame(() => {
 			container.addClass("lyrics-slide-up");
 		});
-		
+
 		// 动画完成后处理
-		setTimeout(() => {
+		this.animationTimeout = setTimeout(() => {
 			if (!this.currentLyrics) return;
-			
+
 			// 移除第一行
 			const firstLine = container.querySelector(".music-lyrics-line");
 			if (firstLine) {
 				firstLine.remove();
 			}
-			
+
 			// 立即重置位置（无过渡）
 			container.removeClass("lyrics-slide-up");
-			
+
 			container.style.fontSize = `${this.displayOptions.fontSize}px`;
+
+			// 清除定时器引用
+			this.animationTimeout = null;
 		}, 500);
 	}
 
@@ -619,6 +642,12 @@ export class LyricsComponent extends Component {
 	 * 清理资源
 	 */
 	onunload(): void {
+		// 清除动画定时器
+		if (this.animationTimeout) {
+			clearTimeout(this.animationTimeout);
+			this.animationTimeout = null;
+		}
+
 		// 移除事件监听器
 		if (this.boundHandleDragMove) {
 			document.removeEventListener("mousemove", this.boundHandleDragMove);
@@ -626,12 +655,12 @@ export class LyricsComponent extends Component {
 		if (this.boundHandleDragEnd) {
 			document.removeEventListener("mouseup", this.boundHandleDragEnd);
 		}
-		
+
 		// 移除全局双击监听
 		if (this.boundHandleGlobalDoubleClick) {
 			document.removeEventListener("dblclick", this.boundHandleGlobalDoubleClick);
 		}
-		
+
 		if (this.isFloating && this.lyricsBar) {
 			this.lyricsBar.remove();
 		}
